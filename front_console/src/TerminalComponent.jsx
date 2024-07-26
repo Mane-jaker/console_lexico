@@ -1,19 +1,21 @@
 import { useState, useEffect, useCallback } from 'react';
 import io from 'socket.io-client';
-import axios from 'axios'; // Asegúrate de instalar axios
+import axios from 'axios';
 
 const TerminalComponent = () => {
     const [socket, setSocket] = useState(null);
     const [inputValue, setInputValue] = useState('');
     const [output, setOutput] = useState([]);
     const [lexicalAnalysis, setLexicalAnalysis] = useState([]);
-    const [isModalOpen, setIsModalOpen] = useState(true); // Modal abierto por defecto
+    const [isDrawerOpen, setIsDrawerOpen] = useState(false); // Drawer state
     const [sshConfig, setSshConfig] = useState({
         host: '',
         port: '',
         username: '',
         password: ''
     });
+    const [connectionStatus, setConnectionStatus] = useState('Connecting...');
+    const [errorOutputs, setErrorOutputs] = useState([]); // Para almacenar errores
 
     useEffect(() => {
         // Conectar al servidor Socket.IO
@@ -30,32 +32,34 @@ const TerminalComponent = () => {
 
         socketInstance.on('output', (data) => {
             const { message, isError } = data;
-            setOutput((prevOutput) => [...prevOutput, message]);
+            if (isError) {
+                setErrorOutputs((prevErrors) => [...prevErrors, message]);
+            } else {
+                setOutput((prevOutput) => [...prevOutput, message]);
+            }
             analyzeLexically(inputValue, isError, message);
         });
 
         return () => {
             socketInstance.disconnect();
         };
-    }, []); // Dependencia vacía para ejecutar una sola vez
+    }, [connectionStatus]); // Añadido inputValue para que el efecto se ejecute cuando cambie
 
     const comandoTraducido = {
+        buscar: 'grep',
+        encontrar: 'find',
+        localizar: 'locate',
+        editor: 'nano',
+        final: 'tail',
+        inicio: 'head',
+        descargar: 'wget',
+        crar: 'touch',
+        crdir: 'mkdir',
         listar: 'ls',
-        crearDirectorio: 'mkdir',
-        eliminar: 'rm',
-        mover: 'mv',
-        copiar: 'cp',
-        cambiarDirectorio: 'cd',
-        mostrarDirectorioActual: 'pwd',
-        verContenidoArchivo: 'cat',
-        cambiarPermisos: 'chmod',
-        verEspacioDisco: 'df',
-        verConsumoRecursos: 'top',
-        listarProcesos: 'ps',
-        verHistorialComandos: 'history',
-        eliminarDirectorio: 'rm -r'
+        cd: 'cd',
+        diract: 'pwd'
     };
-
+    
     const parseCommand = useCallback((input) => {
         const tokens = input.trim().split(' ');
         const command = tokens[0];
@@ -99,67 +103,30 @@ const TerminalComponent = () => {
 
     const handleModalSubmit = async () => {
         try {
-            await axios.post('http://localhost:3000/set-ssh-config', sshConfig);
-            setIsModalOpen(false);
+            const response = await axios.post('http://localhost:3000/set-ssh-config', sshConfig);
+            if (response.status === 200) {
+                setConnectionStatus('Connected');
+            } else {
+                setConnectionStatus('Connecting...');
+            }
         } catch (error) {
             console.error('Error al enviar la configuración SSH:', error);
+            setConnectionStatus('Connecting...');
         }
     };
 
     return (
         <div className="flex flex-col h-screen">
-            {/* Modal */}
-            {isModalOpen && (
-                <div className="fixed inset-0 flex items-center justify-center bg-gray-900 bg-opacity-50">
-                    <div className="bg-white p-6 rounded-lg shadow-lg">
-                        <h2 className="text-lg font-bold mb-4">Configuración SSH</h2>
-                        <div className="mb-4">
-                            <label className="block text-gray-700">Host</label>
-                            <input
-                                type="text"
-                                className="w-full p-2 border border-gray-300 rounded"
-                                value={sshConfig.host}
-                                onChange={(e) => setSshConfig({ ...sshConfig, host: e.target.value })}
-                            />
-                        </div>
-                        <div className="mb-4">
-                            <label className="block text-gray-700">Puerto</label>
-                            <input
-                                type="text"
-                                className="w-full p-2 border border-gray-300 rounded"
-                                value={sshConfig.port}
-                                onChange={(e) => setSshConfig({ ...sshConfig, port: e.target.value })}
-                            />
-                        </div>
-                        <div className="mb-4">
-                            <label className="block text-gray-700">Usuario</label>
-                            <input
-                                type="text"
-                                className="w-full p-2 border border-gray-300 rounded"
-                                value={sshConfig.username}
-                                onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
-                            />
-                        </div>
-                        <div className="mb-4">
-                            <label className="block text-gray-700">Contraseña</label>
-                            <input
-                                type="password"
-                                className="w-full p-2 border border-gray-300 rounded"
-                                value={sshConfig.password}
-                                onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
-                            />
-                        </div>
-                        <button
-                            className="px-4 py-2 bg-blue-500 text-white rounded"
-                            onClick={handleModalSubmit}
-                        >
-                            Enviar
-                        </button>
-                    </div>
-                </div>
-            )}
+            {/* Botón para abrir el drawer */}
+            <button
+                className="m-4 px-4 py-2 bg-blue-500 text-white rounded"
+                onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+            >
+                {isDrawerOpen ? 'Cerrar' : 'Comandos Personalizados'} 
+            </button>
             
-            <div className="flex-1 flex">
+            {/* Drawer */}
+            <div className={`fixed inset-0 flex z-50 ${isDrawerOpen ? '' : 'hidden'}`}>
                 <div className="w-1/4 p-4 bg-gray-800 text-white">
                     <h2 className="text-lg font-bold mb-4">Comandos personalizados</h2>
                     <ul>
@@ -170,8 +137,60 @@ const TerminalComponent = () => {
                         ))}
                     </ul>
                 </div>
+                <div className="w-3/4 bg-gray-900 bg-opacity-50" onClick={() => setIsDrawerOpen(false)}></div>
+            </div>
+
+            <div className="flex-1 flex">
+                <div className="w-1/4 p-4 bg-gray-800 text-white">
+                    <h2 className="text-lg font-bold mb-4">Configuración SSH</h2>
+                    <div className="mb-4">
+                        <label className="block text-white-700">Host</label>
+                        <input
+                            type="text"
+                            className="w-full p-2 border border-gray-300 rounded text-gray-700"
+                            value={sshConfig.host}
+                            onChange={(e) => setSshConfig({ ...sshConfig, host: e.target.value })}
+                        />
+                    </div>
+                    <div className="mb-4">
+                        <label className="block text-white-700">Puerto</label>
+                        <input
+                            type="text"
+                            className="w-full p-2 border border-gray-300 rounded text-gray-700"
+                            value={sshConfig.port}
+                            onChange={(e) => setSshConfig({ ...sshConfig, port: e.target.value })}
+                        />
+                    </div>
+                    <div className="mb-4">
+                        <label className="block text-white-700">Usuario</label>
+                        <input
+                            type="text"
+                            className="w-full p-2 border border-gray-300 rounded text-gray-700"
+                            value={sshConfig.username}
+                            onChange={(e) => setSshConfig({ ...sshConfig, username: e.target.value })}
+                        />
+                    </div>
+                    <div className="mb-4">
+                        <label className="block text-white-700">Contraseña</label>
+                        <input
+                            type="password"
+                            className="w-full p-2 border border-gray-300 rounded text-gray-700"
+                            value={sshConfig.password}
+                            onChange={(e) => setSshConfig({ ...sshConfig, password: e.target.value })}
+                        />
+                    </div>
+                    <button
+                        className="px-4 py-2 bg-blue-500 text-white rounded"
+                        onClick={handleModalSubmit}
+                    >
+                        Enviar
+                    </button>
+                </div>
                 <div className="flex-1 flex flex-col h-full">
                     <div className="flex-1 overflow-y-auto p-4 bg-black text-white">
+                        <div className="h-full flex items-center justify-center">
+                            {connectionStatus}
+                        </div>
                         <textarea
                             className="w-full h-full bg-black text-white border-0 focus:outline-none resize-none"
                             value={output.join('\n')}
@@ -190,44 +209,58 @@ const TerminalComponent = () => {
                                     sendCommand();
                                 }
                             }}
+                            disabled={connectionStatus !== 'Connected'}
                         />
                         <button
                             className="ml-2 px-4 py-1 bg-blue-500 text-white rounded-lg hover:bg-blue-600 focus:outline-none"
                             onClick={sendCommand}
+                            disabled={connectionStatus !== 'Connected'}
                         >
                             Enviar
                         </button>
                     </div>
                 </div>
             </div>
-            <div className="lexical-analysis-container p-4 bg-gray-100">
-                <h2 className="text-lg font-bold mb-4">Análisis léxico</h2>
-                <table className="min-w-full bg-white">
+            <div className="flex-1 flex p-4">
+                <div className="flex-1 overflow-y-auto w-1/2 p-4 bg-gray-100">
+                    <h2 className="text-lg font-bold mb-4">Análisis léxico sintáctico</h2>
+                    <table className="min-w-full bg-white">
                     <thead>
-                        <tr>
-                            <th className="py-2">Comando</th>
-                            <th className="py-2">Palabra reservada</th>
-                            <th className="py-2">Identificador</th>
-                            <th className="py-2">Error</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {lexicalAnalysis.map((item, index) => (
-                            <tr key={index}>
-                                <td className="border px-4 py-2">{item.input}</td>
-                                <td className="border px-4 py-2">
-                                    {item.type === 'Palabra reservada' ? item.input : '-'}
-                                </td>
-                                <td className="border px-4 py-2">
-                                    {item.type === 'Identificador' ? item.input : '-'}
-                                </td>
-                                <td className="border px-4 py-2">
-                                    {item.type === 'Error' ? '❌' : '✔️'}
-                                </td>
+                            <tr>
+                                <th className="py-2">Comando</th>
+                                <th className="py-2">Palabra reservada</th>
+                                <th className="py-2">Identificador</th>
+                                <th className="py-2">Error</th>
                             </tr>
+                        </thead>
+                        <tbody>
+                            {lexicalAnalysis.map((item, index) => (
+                                <tr key={index}>
+                                    <td className="border px-4 py-2">{item.input}</td>
+                                    <td className="border px-4 py-2">
+                                        {item.type === 'Palabra reservada' ? item.input : '-'}
+                                    </td>
+                                    <td className="border px-4 py-2">
+                                        {item.type === 'Identificador' ? item.input : '-'}
+                                    </td>
+                                    <td className="border px-4 py-2">
+                                        {item.error ? '❌' : '✔️'}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 bg-red-100 w-1/2">
+                    <h2 className="text-lg font-bold mb-4">Errores</h2>
+                    <div className="h-full bg-red-200 p-4 overflow-y-auto">
+                        {errorOutputs.map((error, index) => (
+                            <div key={index} className="mb-2 p-2 bg-red-300 rounded">
+                                {error}
+                            </div>
                         ))}
-                    </tbody>
-                </table>
+                    </div>
+                </div>
             </div>
         </div>
     );
